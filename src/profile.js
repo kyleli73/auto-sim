@@ -2,6 +2,7 @@ import {
   segPoints, segStartPose, bezierLength, arcTable, paramAtDistance, bezierPoint,
   tangentAngle, normDeg, footprint, polysOverlap,
 } from './geometry.js';
+import { ZONES, rectPoly } from './field.js';
 
 export const AUTO_SECONDS = 30;
 
@@ -75,7 +76,8 @@ export function poseAt(robot, t) {
 
 export function totalTime(robot) { return timelineFor(robot).total; }
 
-// Intervals where two footprints overlap: [{a, b, t0, t1}].
+// Intervals where two footprints overlap, or a footprint overlaps the HIVE frame (b: 'hive'): [{a, b, t0, t1}].
+const hivePoly = rectPoly(ZONES.hive);
 export function findConflicts(board, { step = 0.1, tEnd = AUTO_SECONDS } = {}) {
   const keys = Object.keys(board.robots), open = {}, out = [];
   for (let t = 0; t <= tEnd + 1e-9; t += step) {
@@ -83,6 +85,12 @@ export function findConflicts(board, { step = 0.1, tEnd = AUTO_SECONDS } = {}) {
     for (const k of keys) {
       const r = board.robots[k], p = poseAt(r, t);
       polys[k] = footprint(p.x, p.y, p.h, r.size.w, r.size.l);
+    }
+    for (const k of keys) {
+      const id = k + 'hive', hit = polysOverlap(polys[k], hivePoly);
+      if (hit && !open[id]) { open[id] = { a: k, b: 'hive', t0: t, t1: t }; out.push(open[id]); }
+      else if (hit) open[id].t1 = t;
+      else delete open[id];
     }
     for (let i = 0; i < keys.length; i++) {
       for (let j = i + 1; j < keys.length; j++) {

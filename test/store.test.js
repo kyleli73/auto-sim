@@ -4,16 +4,16 @@ import { newBoard, reduce, createStore } from '../src/store.js';
 
 const seg = (x, y, h) => ({ kind: 'line', end: { x, y, h } });
 
-test('mirror copies to other alliance with x -> 144 - x and h -> 180 - h', () => {
+test('mirror rotates 180 degrees: (x, y, h) -> (144 - x, 144 - y, h + 180)', () => {
   let b = newBoard('t');
   b = reduce(b, { type: 'setStart', robot: 'r1', pose: { x: 24, y: 9, h: 90 } });
   b = reduce(b, { type: 'addSegment', robot: 'r1', segment: { kind: 'curve', controls: [{ x: 30, y: 20 }, { x: 40, y: 30 }], end: { x: 60, y: 40, h: 0 } } });
   b = reduce(b, { type: 'addMarker', robot: 'r1', segIndex: 0, label: 'park', waitS: 1.5 });
   b = reduce(b, { type: 'mirror', from: 'r1', at: 9, author: 'k' });
   const m = b.robots.b1;
-  assert.deepEqual(m.path.startPose, { x: 120, y: 9, h: 90 });
-  assert.deepEqual(m.path.segments[0].controls, [{ x: 114, y: 20 }, { x: 104, y: 30 }]);
-  assert.deepEqual(m.path.segments[0].end, { x: 84, y: 40, h: 180 });
+  assert.deepEqual(m.path.startPose, { x: 120, y: 135, h: -90 });
+  assert.deepEqual(m.path.segments[0].controls, [{ x: 114, y: 124 }, { x: 104, y: 114 }]);
+  assert.deepEqual(m.path.segments[0].end, { x: 84, y: 104, h: 180 });
   assert.deepEqual(m.markers, [{ segIndex: 0, label: 'park', waitS: 1.5 }]);
   assert.deepEqual([m.path.updatedAt, m.path.author], [9, 'k']);
   assert.equal(b.robots.r1.path.segments[0].end.x, 60);
@@ -66,5 +66,5 @@ test('deleteSegment drops and reindexes markers', () => {
   b = reduce(b, { type: 'addMarker', robot: 'r1', segIndex: 2, label: 'c', waitS: 1 });
   b = reduce(b, { type: 'deleteSegment', robot: 'r1', segIndex: 0 });
   assert.deepEqual(b.robots.r1.markers, [{ segIndex: 1, label: 'c', waitS: 1 }]);
-  assert.deepEqual(b.robots.r1.path.segments[0].start, { x: 120, y: 9, h: 90 });
+  assert.deepEqual(b.robots.r1.path.segments[0].start, { x: 60, y: 9, h: 90 });
 });

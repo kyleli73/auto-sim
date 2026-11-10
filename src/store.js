@@ -5,8 +5,8 @@ export const ROBOT_LABEL = { r1: 'Red 1', r2: 'Red 2', b1: 'Blue 1', b2: 'Blue 2
 export const OTHER_ALLIANCE = { r1: 'b1', r2: 'b2', b1: 'r1', b2: 'r2' };
 const COLORS = { r1: '#ef4444', r2: '#f97316', b1: '#3b82f6', b2: '#a78bfa' };
 const STARTS = {
-  r1: { x: 120, y: 9, h: 90 }, r2: { x: 96, y: 9, h: 90 },
-  b1: { x: 24, y: 9, h: 90 }, b2: { x: 48, y: 9, h: 90 },
+  r1: { x: 60, y: 9, h: 90 }, r2: { x: 120, y: 9, h: 90 },
+  b1: { x: 84, y: 135, h: 270 }, b2: { x: 24, y: 135, h: 270 },
 };
 
 export const uid = () => Math.random().toString(36).slice(2, 9);
@@ -63,7 +63,7 @@ export function normalizeBoard(raw) {
   return b;
 }
 
-const mirrorPose = p => ({ ...p, x: FIELD - p.x, h: normDeg(180 - p.h) });
+const mirrorPose = p => ({ ...p, x: FIELD - p.x, y: FIELD - p.y, h: normDeg(p.h + 180) });
 
 export function mirrorPath(path) {
   return {
@@ -72,7 +72,7 @@ export function mirrorPath(path) {
     segments: path.segments.map(s => ({
       ...s, id: uid(),
       ...(s.start ? { start: mirrorPose(s.start) } : {}),
-      controls: s.controls.map(c => ({ x: FIELD - c.x, y: c.y })),
+      controls: s.controls.map(c => ({ x: FIELD - c.x, y: FIELD - c.y })),
       end: mirrorPose(s.end),
     })),
   };

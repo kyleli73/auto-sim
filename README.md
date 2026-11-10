@@ -1,8 +1,10 @@
 # Bubblotics Auto Sim
 
-Collaborative autonomous path visualization for FTC match strategy. Sketch autos for all four robots in a match (Red 1, Red 2, Blue 1, Blue 2), play them back together, spot footprint overlaps, and share the board with an alliance partner. It favors speed over precision; use a high-fidelity planner for final paths.
+Collaborative autonomous path visualization for FTC BIOBUZZ 2026-27 match strategy. Sketch autos for all four robots in a match (Red 1, Red 2, Blue 1, Blue 2), play them back together, spot footprint overlaps, and share the board with an alliance partner. It favors speed over precision; use a high-fidelity planner for final paths.
 
 Field model: 144 x 144 in, origin bottom-left, +x right, +y up, heading in degrees (0 = +x, CCW positive), Pedro Pathing coordinates.
+
+Field orientation: the red alliance is at the bottom (y < 72) and the blue alliance at the top (y > 72), with the HIVE in the center. The field is 180-degree rotationally symmetric. Default starts: Red 1 (60, 9), Red 2 (120, 9), Blue 1 (84, 135), Blue 2 (24, 135).
 
 ## Use
 
@@ -10,11 +12,11 @@ Field model: 144 x 144 in, origin bottom-left, +x right, +y up, heading in degre
 - Draw: drag a freehand stroke (simplified with Ramer-Douglas-Peucker, fitted to cubic Beziers, near-straight pieces become lines) or click to add a straight line. Alt disables the 1 in grid snap.
 - Select: drag endpoints (squares) and control points (circles). Double-click an endpoint, or use the Marker tool, to add a labeled wait.
 - Play with Space; the timeline runs the 30 s auto. Each path uses a trapezoidal velocity profile (per-robot max velocity and acceleration). Overlapping footprints turn red and are listed under the scrub bar.
-- Mirror copies the active robot's path to the other alliance (x -> 144 - x, heading -> 180 - h). Shift-click mirrors in place.
+- Mirror copies the active robot's path to the other alliance (180-degree rotation: (x, y, h) -> (144 - x, 144 - y, h + 180)). Shift-click mirrors in place.
 - Share: "Copy share link" puts the whole board in the URL hash (deflate + base64url). Export/Import use `.json`; PNG saves the current view.
 - Boards are saved in localStorage automatically. Several tabs on one device sync live through BroadcastChannel.
 - Live room: syncs across devices over WebRTC using PeerJS, loaded from unpkg only when you open a room. It needs internet; offline, the app says so and share links keep working. Conflicts resolve last-writer-wins per path; joining takes a whole-board snapshot from the host.
-- Field image: upload your own picture (stored in IndexedDB) with an opacity slider. No field render is bundled.
+- Field image: `field.png` is the default background. Upload your own (stored in IndexedDB) to override it, with an opacity slider; Reset returns to `field.png`. "Zones" (Z) outlines the loading zones and HIVE frame. A small warning under the timeline flags illegal start poses (off alliance side, not touching a wall, in a LOADING ZONE, touching a FLOWER); HIVE-frame overlaps are listed with the robot conflicts.
 
 ## Run locally
 

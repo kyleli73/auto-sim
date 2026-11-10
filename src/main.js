@@ -12,7 +12,7 @@ const store = createStore(lib.boards[lib.currentId], { author: clientId });
 
 const ui = {
   robot: 'r1', tool: 'draw', sel: null, t: 0, playing: false, snap: true, draft: null,
-  bg: null, peers: new Map(), conflicts: [], hot: new Set(),
+  bg: null, zones: false, startWarn: [], peers: new Map(), conflicts: [], hot: new Set(),
 };
 const app = { store, ui, lib, view: { w: 1, h: 1, scale: 1, ox: 0, oy: 0, size: 1 }, toast() {}, roomStatus() {}, setPeers() {} };
 let needsDraw = true, saveTimer = 0;

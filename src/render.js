@@ -2,6 +2,7 @@ import { FIELD, rad, bezierPoint, segPoints, footprint } from './geometry.js';
 import { poseAt } from './profile.js';
 import { ROBOT_KEYS } from './store.js';
 import { peerColor } from './sync.js';
+import { ZONES } from './field.js';
 
 const PAD = 28;
 const TEAL = '#14b8a6';
@@ -13,7 +14,7 @@ export function makeView(w, h) {
 export const toScreen = (v, x, y) => [v.ox + x * v.scale, v.oy + (FIELD - y) * v.scale];
 export const toField = (v, px, py) => ({ x: (px - v.ox) / v.scale, y: FIELD - (py - v.oy) / v.scale });
 
-function drawField(ctx, v, bg) {
+function drawField(ctx, v, bg, zones) {
   ctx.fillStyle = '#121d24';
   ctx.fillRect(v.ox, v.oy, v.size, v.size);
   if (bg?.img) {
@@ -21,13 +22,16 @@ function drawField(ctx, v, bg) {
     ctx.drawImage(bg.img, v.ox, v.oy, v.size, v.size);
     ctx.globalAlpha = 1;
   }
-  const corner = (x, y, dx, dy, color) => {
-    const [sx, sy] = toScreen(v, x, y), s = 36 * v.scale;
-    ctx.fillStyle = color;
-    ctx.beginPath(); ctx.moveTo(sx, sy); ctx.lineTo(sx + dx * s, sy); ctx.lineTo(sx, sy + dy * s); ctx.closePath(); ctx.fill();
-  };
-  corner(0, FIELD, 1, 1, 'rgba(59,130,246,0.28)');
-  corner(FIELD, FIELD, -1, 1, 'rgba(239,68,68,0.28)');
+  if (zones) {
+    ctx.setLineDash([5, 3]); ctx.lineWidth = 2;
+    const box = (r, c) => {
+      const [x, y] = toScreen(v, r.x0, r.y1);
+      ctx.strokeStyle = c; ctx.strokeRect(x, y, (r.x1 - r.x0) * v.scale, (r.y1 - r.y0) * v.scale);
+    };
+    box(ZONES.hive, '#facc15');
+    box(ZONES.loading.red, '#ef4444'); box(ZONES.loading.blue, '#60a5fa');
+    ctx.setLineDash([]);
+  }
   ctx.strokeStyle = 'rgba(255,255,255,0.1)';
   ctx.lineWidth = 1;
   ctx.beginPath();
@@ -46,10 +50,6 @@ function drawField(ctx, v, bg) {
     ctx.fillText('ABCDEF'[i], v.ox + (i * 24 + 12) * v.scale, v.oy + v.size + 13);
     ctx.fillText(String(6 - i), v.ox - 13, v.oy + (i * 24 + 12) * v.scale);
   }
-  ctx.fillStyle = 'rgba(96,165,250,0.9)'; ctx.textAlign = 'left';
-  ctx.fillText('BLUE GOAL', v.ox + 4, v.oy + 9);
-  ctx.fillStyle = 'rgba(239,68,68,0.8)'; ctx.textAlign = 'right';
-  ctx.fillText('RED GOAL', v.ox + v.size - 4, v.oy + 9);
 }
 
 function tracePath(ctx, v, path) {
@@ -102,7 +102,7 @@ export function handlePositions(path) {
 export function draw(ctx, w, h, board, ui) {
   const v = makeView(w, h);
   ctx.clearRect(0, 0, w, h);
-  drawField(ctx, v, ui.bg);
+  drawField(ctx, v, ui.bg, ui.zones);
 
   for (const k of ROBOT_KEYS) {
     const r = board.robots[k], active = k === ui.robot;

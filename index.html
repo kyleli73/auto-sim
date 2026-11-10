@@ -64,7 +64,8 @@
     </section>
     <section>
       <h3>Field image</h3>
-      <div class="chips"><button id="bgPick" class="chip">Upload</button><button id="bgClear" class="chip">Remove</button></div>
+      <label class="row"><input id="zones" type="checkbox"> Zones <small>(Z)</small></label>
+      <div class="chips"><button id="bgPick" class="chip">Upload</button><button id="bgClear" class="chip">Reset</button></div>
       <label class="row">Opacity <input id="bgOpacity" type="range" min="0.1" max="1" step="0.05" value="0.5"></label>
       <input id="bgFile" type="file" accept="image/*" hidden>
     </section>
@@ -81,6 +82,7 @@
   </div>
   <div id="clock" class="clock">0.0 / 30 s</div>
   <div id="durations" class="durs"></div>
+  <div id="startWarn" class="startwarn"></div>
   <div id="conflicts" class="conflicts"></div>
 </footer>
 
@@ -93,7 +95,7 @@
   <form method="dialog" id="markerForm">
     <h2>Waypoint action</h2>
     <label class="row">Label <input id="mLabel" list="mList" autocomplete="off"></label>
-    <datalist id="mList"><option value="score"><option value="intake"><option value="park"></datalist>
+    <datalist id="mList"><option value="Launch"><option value="Intake pollen"><option value="Flower"><option value="Garden"><option value="Park"></datalist>
     <label class="row">Wait <input id="mWait" type="number" min="0" step="0.5" value="1"> s</label>
     <div class="actions"><button value="save" class="btn accent">Save</button><button value="remove" class="btn">Remove</button><button value="cancel" class="btn">Cancel</button></div>
   </form>
@@ -111,6 +113,7 @@
   <table class="keys">
     <tr><td><kbd>1</kbd>-<kbd>4</kbd></td><td>Red 1, Red 2, Blue 1, Blue 2</td></tr>
     <tr><td><kbd>D</kbd> <kbd>S</kbd> <kbd>P</kbd> <kbd>M</kbd></td><td>Draw, select, start pose, marker tools</td></tr>
+    <tr><td><kbd>Z</kbd></td><td>Toggle zone overlay (loading zones, HIVE frame)</td></tr>
     <tr><td><kbd>G</kbd></td><td>Toggle grid snap (hold <kbd>Alt</kbd> to bypass)</td></tr>
     <tr><td><kbd>Space</kbd></td><td>Play / pause</td></tr>
     <tr><td><kbd>Ctrl</kbd>+<kbd>Z</kbd> / <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>Z</kbd></td><td>Undo / redo</td></tr>

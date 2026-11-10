@@ -1,6 +1,7 @@
 import { FIELD, dist, deg, tangentAngle, fitStroke, segPoints, normDeg } from './geometry.js';
 import { AUTO_SECONDS, findConflicts, totalTime } from './profile.js';
 import { ROBOT_KEYS, ROBOT_LABEL, uid } from './store.js';
+import { startIssues } from './field.js';
 import { toField, toScreen, handlePositions } from './render.js';
 import { encodeBoard, shareUrl } from './share.js';
 
@@ -89,10 +90,12 @@ export function initUI(app) {
   };
 
   // ---- marker dialog
+  const PRESET_WAIT = { launch: 1.5, 'intake pollen': 1, flower: 1.5, garden: 0.5, park: 0 };
+  $('mLabel').oninput = e => { const w = PRESET_WAIT[e.target.value.trim().toLowerCase()]; if (w !== undefined) $('mWait').value = w; };
   function openMarker(segIndex) {
     const r = robot(), m = r.markers.find(k => k.segIndex === segIndex);
-    $('mLabel').value = m ? m.label : '';
-    $('mWait').value = m ? m.waitS : 1;
+    $('mLabel').value = m ? m.label : 'Launch';
+    $('mWait').value = m ? m.waitS : PRESET_WAIT.launch;
     const key = ui.robot, dlg = $('markerDlg');
     dlg.returnValue = '';
     dlg.onclose = () => {
@@ -302,14 +305,16 @@ export function initUI(app) {
   };
 
   // ---- field image
-  const bgOp = () => { try { return +localStorage.getItem('bubblotics.autosim.bgop') || 0.5; } catch { return 0.5; } };
-  const setBg = blob => {
-    if (!blob) { ui.bg = null; app.dirty(); return; }
-    const img = new Image(), url = URL.createObjectURL(blob);
-    img.onload = () => { ui.bg = { img, opacity: bgOp() }; $('bgOpacity').value = ui.bg.opacity; app.dirty(); };
-    img.src = url;
+  const bgOp = d => { try { return +localStorage.getItem('bubblotics.autosim.bgop') || d; } catch { return d; } };
+  const showImg = (src, d) => {
+    const img = new Image();
+    img.onload = () => { ui.bg = { img, opacity: bgOp(d) }; $('bgOpacity').value = ui.bg.opacity; app.dirty(); };
+    img.src = src;
   };
-  idb('readonly', s => s.get('bg')).then(setBg).catch(() => {});
+  const defaultBg = () => showImg('./field.png', 1);
+  const setBg = blob => showImg(URL.createObjectURL(blob), 0.5);
+  defaultBg();
+  idb('readonly', s => s.get('bg')).then(b => { if (b) setBg(b); }).catch(() => {});
   $('bgPick').onclick = () => $('bgFile').click();
   $('bgFile').onchange = async e => {
     const f = e.target.files[0];
@@ -318,7 +323,8 @@ export function initUI(app) {
     setBg(f);
     try { await idb('readwrite', s => s.put(f, 'bg')); } catch { toast('Image shown, but could not be saved for next time.'); }
   };
-  $('bgClear').onclick = () => { setBg(null); idb('readwrite', s => s.delete('bg')).catch(() => {}); };
+  $('bgClear').onclick = () => { defaultBg(); idb('readwrite', s => s.delete('bg')).catch(() => {}); };
+  $('zones').onchange = e => { ui.zones = e.target.checked; app.dirty(); };
   $('bgOpacity').oninput = e => {
     if (ui.bg) ui.bg.opacity = +e.target.value;
     try { localStorage.setItem('bubblotics.autosim.bgop', e.target.value); } catch { /* ignore */ }
@@ -343,6 +349,8 @@ export function initUI(app) {
 
   function refreshTimeline(b) {
     ui.conflicts = findConflicts(b);
+    const sw = $('startWarn');
+    sw.textContent = ROBOT_KEYS.flatMap(k => startIssues(k, b.robots[k].path.startPose, b.robots[k].size).map(m => `${ROBOT_LABEL[k]} start: ${m}`)).join(' | ');
     const bar = $('conflictBar');
     bar.textContent = '';
     for (const c of ui.conflicts) {
@@ -424,6 +432,7 @@ export function initUI(app) {
     else if (k === 's') setTool('select');
     else if (k === 'p') setTool('start');
     else if (k === 'm') setTool('marker');
+    else if (k === 'z') { ui.zones = !ui.zones; $('zones').checked = ui.zones; app.dirty(); }
     else if (k === 'g') { ui.snap = !ui.snap; refresh(); }
     else if (k === '?' || k === '/') $('helpDlg').showModal();
     else if (k === 'delete' || k === 'backspace') { if (ui.sel) { e.preventDefault(); const i = ui.sel.seg; ui.sel = null; store.dispatch({ type: 'deleteSegment', robot: ui.robot, segIndex: i }); } }
