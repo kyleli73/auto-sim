@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Bubblotics Auto Sim</title>
+<meta name="theme-color" content="#0b1115">
+<link rel="manifest" href="./manifest.webmanifest">
+<link rel="icon" href="./icon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+<header id="top">
+  <div class="brand"><img src="./icon.svg" alt="" width="24" height="24"><span>Bubblotics <b>Auto Sim</b></span></div>
+  <button id="boardName" class="btn board" title="Boards">Board</button>
+  <div class="spacer"></div>
+  <button id="undo" class="btn" title="Undo (Ctrl+Z)">Undo</button>
+  <button id="redo" class="btn" title="Redo (Ctrl+Shift+Z)">Redo</button>
+  <button id="mirror" class="btn" title="Copy this robot's path mirrored to the other alliance (Shift-click: mirror in place)">Mirror</button>
+  <button id="share" class="btn accent">Copy share link</button>
+  <button id="room" class="btn">Live room <span id="peerCount" class="pill" hidden>0</span></button>
+  <button id="exportJson" class="btn">Export</button>
+  <button id="importJson" class="btn">Import</button>
+  <button id="exportPng" class="btn">PNG</button>
+  <button id="helpBtn" class="btn" title="Shortcuts (?)">?</button>
+  <input id="importFile" type="file" accept=".json,application/json" hidden>
+</header>
+<div id="main">
+  <aside id="tools">
+    <section>
+      <h3>Robot</h3>
+      <div id="chips" class="chips"></div>
+    </section>
+    <section>
+      <h3>Tool</h3>
+      <div id="toolBtns" class="chips">
+        <button data-tool="draw" class="chip" title="Draw (D)">Draw</button>
+        <button data-tool="select" class="chip" title="Select (S)">Select</button>
+        <button data-tool="start" class="chip" title="Start pose (P)">Start</button>
+        <button data-tool="marker" class="chip" title="Marker (M)">Marker</button>
+      </div>
+      <label class="row"><input id="snap" type="checkbox" checked> Snap to 1 in <small>(Alt = off)</small></label>
+    </section>
+    <section id="segPanel" hidden>
+      <h3>Segment <span id="segTitle"></span></h3>
+      <div class="chips">
+        <button id="segKind" class="chip"></button>
+        <button id="segDel" class="chip danger">Delete</button>
+      </div>
+      <label class="row">Heading
+        <select id="segMode"><option value="linear">linear</option><option value="constant">constant</option><option value="tangential">tangential</option></select>
+      </label>
+      <label class="row">End heading <input id="segH" type="number" step="1"> deg</label>
+      <label class="row"><input id="segRev" type="checkbox"> Reversed (tangential)</label>
+    </section>
+    <section>
+      <h3>Robot settings</h3>
+      <label class="row">Team <input id="rTeam" type="text" maxlength="12" placeholder="e.g. 1234"></label>
+      <label class="row">Color <input id="rColor" type="color"></label>
+      <label class="row">Size <input id="rW" type="number" min="6" max="30" step="0.5"> x <input id="rL" type="number" min="6" max="30" step="0.5"> in</label>
+      <label class="row">Max vel <input id="rVel" type="number" min="1" step="1"> in/s</label>
+      <label class="row">Max accel <input id="rAcc" type="number" min="1" step="1"> in/s&sup2;</label>
+      <button id="clearPath" class="chip danger">Clear path</button>
+    </section>
+    <section>
+      <h3>Field image</h3>
+      <div class="chips"><button id="bgPick" class="chip">Upload</button><button id="bgClear" class="chip">Remove</button></div>
+      <label class="row">Opacity <input id="bgOpacity" type="range" min="0.1" max="1" step="0.05" value="0.5"></label>
+      <input id="bgFile" type="file" accept="image/*" hidden>
+    </section>
+    <p id="hint" class="hint"></p>
+  </aside>
+  <div id="stage"><canvas id="field"></canvas><div id="toast" role="status" hidden></div></div>
+</div>
+<footer id="timeline">
+  <button id="play" class="btn accent" title="Play/pause (Space)">Play</button>
+  <button id="restart" class="btn" title="Back to 0">|&lt;</button>
+  <div class="scrubwrap">
+    <div id="conflictBar"></div>
+    <input id="scrub" type="range" min="0" max="30" step="0.05" value="0">
+  </div>
+  <div id="clock" class="clock">0.0 / 30 s</div>
+  <div id="durations" class="durs"></div>
+  <div id="conflicts" class="conflicts"></div>
+</footer>
+
+<dialog id="boardsDlg">
+  <h2>Boards</h2>
+  <ul id="boardList"></ul>
+  <form method="dialog" class="actions"><button type="button" id="newBoard" class="btn accent">New board</button><button class="btn">Close</button></form>
+</dialog>
+<dialog id="markerDlg">
+  <form method="dialog" id="markerForm">
+    <h2>Waypoint action</h2>
+    <label class="row">Label <input id="mLabel" list="mList" autocomplete="off"></label>
+    <datalist id="mList"><option value="score"><option value="intake"><option value="park"></datalist>
+    <label class="row">Wait <input id="mWait" type="number" min="0" step="0.5" value="1"> s</label>
+    <div class="actions"><button value="save" class="btn accent">Save</button><button value="remove" class="btn">Remove</button><button value="cancel" class="btn">Cancel</button></div>
+  </form>
+</dialog>
+<dialog id="roomDlg">
+  <h2>Live room</h2>
+  <p class="muted">Syncs this board with other devices over WebRTC. Needs internet; loads PeerJS only when you use it. Tabs on this device always sync.</p>
+  <div class="actions"><button id="roomStart" class="btn accent">Start a room</button></div>
+  <div class="row"><input id="roomCode" placeholder="Room code" maxlength="5" autocapitalize="characters"><button id="roomJoin" class="btn">Join</button></div>
+  <p id="roomStatus" class="muted"></p>
+  <div class="actions"><button id="roomCopy" class="btn" hidden>Copy invite link</button><button id="roomLeave" class="btn" hidden>Leave</button><form method="dialog"><button class="btn">Close</button></form></div>
+</dialog>
+<dialog id="helpDlg">
+  <h2>Shortcuts</h2>
+  <table class="keys">
+    <tr><td><kbd>1</kbd>-<kbd>4</kbd></td><td>Red 1, Red 2, Blue 1, Blue 2</td></tr>
+    <tr><td><kbd>D</kbd> <kbd>S</kbd> <kbd>P</kbd> <kbd>M</kbd></td><td>Draw, select, start pose, marker tools</td></tr>
+    <tr><td><kbd>G</kbd></td><td>Toggle grid snap (hold <kbd>Alt</kbd> to bypass)</td></tr>
+    <tr><td><kbd>Space</kbd></td><td>Play / pause</td></tr>
+    <tr><td><kbd>Ctrl</kbd>+<kbd>Z</kbd> / <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>Z</kbd></td><td>Undo / redo</td></tr>
+    <tr><td><kbd>Del</kbd></td><td>Delete selected segment</td></tr>
+    <tr><td><kbd>&larr;</kbd> <kbd>&rarr;</kbd></td><td>Step the timeline 0.5 s</td></tr>
+    <tr><td><kbd>?</kbd></td><td>This help</td></tr>
+  </table>
+  <p class="muted">Draw: drag a freehand stroke (fitted to lines and curves) or click to add a straight line. Select: drag squares (endpoints) and circles (control points); double-click an endpoint for a marker.</p>
+  <form method="dialog" class="actions"><button class="btn">Close</button></form>
+</dialog>
+<script type="module" src="./src/main.js"></script>
+</body>
+</html>
