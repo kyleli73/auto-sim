@@ -1,4 +1,4 @@
-import { FIELD, normDeg } from './geometry.js';
+import { FIELD, normDeg, segPoints, segStartPose, splitBezier, tangentAngle } from './geometry.js';
 
 export const ROBOT_KEYS = ['r1', 'r2', 'b1', 'b2'];
 export const ROBOT_LABEL = { r1: 'Red 1', r2: 'Red 2', b1: 'Blue 1', b2: 'Blue 2' };
@@ -9,6 +9,8 @@ const STARTS = {
   b1: { x: 84, y: 135, h: 270 }, b2: { x: 24, y: 135, h: 270 },
 };
 
+export const SLOT_COLORS = COLORS;
+export const DEFAULT_STARTS = STARTS;
 export const uid = () => Math.random().toString(36).slice(2, 9);
 
 export function newRobot(key) {
@@ -96,6 +98,7 @@ export function reduce(board, a) {
   switch (a.type) {
     case 'loadBoard': return a.board;
     case 'renameBoard': return { ...board, name: a.name, updatedAt: a.at ?? board.updatedAt };
+    case 'replaceRobot': return { ...board, robots: { ...board.robots, [a.key]: a.robot } };
     case 'remoteUpdate': {
       const incoming = a.board ? Object.entries(a.board.robots) : [[a.key, a.robot]];
       let next = board;
@@ -153,6 +156,34 @@ export function reduce(board, a) {
         const markers = r.markers.filter(m => m.segIndex !== i).map(m => m.segIndex > i ? { ...m, segIndex: m.segIndex - 1 } : m);
         return { ...withPath(r, { segments }), markers };
       });
+    case 'deleteStart': // promote the first segment end to the start pose
+      return edit(board, a.robot, a, r => {
+        const first = r.path.segments[0];
+        if (!first) return r;
+        const startPose = { ...first.end };
+        const segments = r.path.segments.slice(1);
+        if (segments[0]) segments[0] = { ...segments[0], start: { ...startPose } };
+        const markers = r.markers.filter(m => m.segIndex !== 0).map(m => ({ ...m, segIndex: m.segIndex - 1 }));
+        return { ...withPath(r, { startPose, segments }), markers };
+      });
+    case 'splitSegment': // insert a waypoint at parameter u without changing the shape
+      return edit(board, a.robot, a, r => {
+        const i = a.segIndex, s = r.path.segments[i];
+        if (!s) return r;
+        const u = Math.min(0.98, Math.max(0.02, a.u));
+        const { left, right } = splitBezier(segPoints(r.path, i), u);
+        const h0 = segStartPose(r.path, i).h, m = s.heading.mode;
+        const mid = left[left.length - 1];
+        const mh = m === 'constant' ? s.end.h : m === 'tangential' ? normDeg(tangentAngle(segPoints(r.path, i), u) + (s.heading.reverse ? 180 : 0)) : normDeg(h0 + normDeg(s.end.h - h0) * u);
+        const rd = q => Math.round(q * 100) / 100;
+        const first = { ...s, controls: left.slice(1, -1).map(c => ({ x: rd(c.x), y: rd(c.y) })), end: { x: rd(mid.x), y: rd(mid.y), h: Math.round(mh * 100) / 100 } };
+        const second = { ...s, id: uid(), controls: right.slice(1, -1).map(c => ({ x: rd(c.x), y: rd(c.y) })) };
+        delete second.start; delete second.name;
+        if (s.kind === 'line') { first.controls = []; second.controls = []; }
+        const segments = [...r.path.segments.slice(0, i), first, second, ...r.path.segments.slice(i + 1)];
+        const markers = r.markers.map(k => k.segIndex >= i ? { ...k, segIndex: k.segIndex + 1 } : k);
+        return { ...withPath(r, { segments }), markers };
+      });
     case 'clearPath':
       return edit(board, a.robot, a, r => ({ ...withPath(r, { segments: [] }), markers: [] }));
     case 'addMarker':
@@ -200,7 +231,7 @@ export function createStore(board, { author = 'local', now = () => Date.now(), l
       const a = { at: now(), author, ...action };
       const next = reduce(cur, a);
       if (next === cur) return;
-      const remote = a.type === 'remoteUpdate';
+      const remote = a.type === 'remoteUpdate' || a.type === 'replaceRobot';
       if (a.type === 'loadBoard') { past = []; future = []; lastCoalesce = null; }
       else if (!remote) {
         if (!(a.coalesce && a.coalesce === lastCoalesce)) {
@@ -231,21 +262,4 @@ export function createStore(board, { author = 'local', now = () => Date.now(), l
       notify({ type: 'redo', remote: false, prev });
     },
   };
-}
-
-const LIB_KEY = 'bubblotics.autosim.v1';
-
-export function readLibrary(storage) {
-  try {
-    const lib = JSON.parse(storage.getItem(LIB_KEY));
-    const boards = {};
-    for (const [id, b] of Object.entries(lib.boards)) { try { boards[id] = normalizeBoard(b); } catch { /* skip corrupt board */ } }
-    if (Object.keys(boards).length) return { boards, currentId: boards[lib.currentId] ? lib.currentId : Object.keys(boards)[0] };
-  } catch { /* first run or unreadable */ }
-  const b = newBoard('Untitled board');
-  return { boards: { [b.id]: b }, currentId: b.id };
-}
-
-export function writeLibrary(storage, lib) {
-  try { storage.setItem(LIB_KEY, JSON.stringify(lib)); return true; } catch { return false; }
 }

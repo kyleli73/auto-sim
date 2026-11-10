@@ -10,25 +10,49 @@
 <link rel="stylesheet" href="./styles.css">
 </head>
 <body>
+<div id="libraryView" class="view">
+  <header class="bar">
+    <button id="libBack" class="btn icon" title="Back to the last auto" aria-label="Back">&larr;</button>
+    <h1>Autos</h1>
+    <div class="spacer"></div>
+    <button id="libImport" class="btn" title="Import .pp or Pedro Java files (or drop them anywhere)">Import</button>
+    <button id="libPaste" class="btn">Paste</button>
+    <button id="libRoom" class="btn">Live room <span class="pill peerCount" hidden>0</span></button>
+    <button id="libHelp" class="btn" title="Shortcuts (?)">?</button>
+    <button id="newAuto" class="btn accent">+ New auto</button>
+  </header>
+  <section class="boardstrip">
+    <label>Match board <select id="boardSel"></select></label>
+    <button id="boardNew" class="btn sm">New</button>
+    <button id="boardRename" class="btn sm">Rename</button>
+    <button id="boardShare" class="btn sm" title="Copy a share link with this board and its autos">Share board</button>
+    <div id="slotChips" class="slotchips"></div>
+  </section>
+  <section class="filters">
+    <div id="teamSeg" class="seg" role="group" aria-label="Team filter"></div>
+    <input id="q" type="search" placeholder="Search name or team" aria-label="Search autos">
+    <select id="sort" aria-label="Sort"><option value="new">Newest first</option><option value="old">Oldest first</option><option value="name">Name A-Z</option></select>
+  </section>
+  <div id="cards" class="cards"></div>
+</div>
+
+<div id="editorView" class="view" hidden>
 <header id="top">
-  <div class="brand"><img src="./icon.svg" alt="" width="24" height="24"><span>Bubblotics <b>Auto Sim</b></span></div>
-  <button id="boardName" class="btn board" title="Boards">Board</button>
+  <button id="edBack" class="btn icon" title="Back to Autos" aria-label="Back to Autos">&larr;</button>
+  <input id="autoName" class="nameinput" aria-label="Auto name" maxlength="60">
   <div class="spacer"></div>
   <button id="undo" class="btn" title="Undo (Ctrl+Z)">Undo</button>
   <button id="redo" class="btn" title="Redo (Ctrl+Shift+Z)">Redo</button>
-  <button id="mirror" class="btn" title="Copy this robot's path mirrored to the other alliance (Shift-click: mirror in place)">Mirror</button>
-  <button id="share" class="btn accent">Copy share link</button>
-  <button id="room" class="btn">Live room <span id="peerCount" class="pill" hidden>0</span></button>
-  <button id="exportJson" class="btn">Export</button>
-  <button id="importJson" class="btn">Import</button>
+  <button id="share" class="btn accent">Share</button>
+  <button id="downloadPP" class="btn" title="Download as a Pedro Visualizer .pp file">Download .pp</button>
+  <button id="room" class="btn">Live room <span class="pill peerCount" hidden>0</span></button>
   <button id="exportPng" class="btn">PNG</button>
   <button id="helpBtn" class="btn" title="Shortcuts (?)">?</button>
-  <input id="importFile" type="file" accept=".json,application/json" hidden>
 </header>
 <div id="main">
   <aside id="tools">
     <section>
-      <h3>Robot</h3>
+      <h3>Match board</h3>
       <div id="chips" class="chips"></div>
     </section>
     <section>
@@ -41,22 +65,9 @@
       </div>
       <label class="row"><input id="snap" type="checkbox" checked> Snap to 1 in <small>(Alt = off)</small></label>
     </section>
-    <section id="segPanel" hidden>
-      <h3>Segment <span id="segTitle"></span></h3>
-      <div class="chips">
-        <button id="segKind" class="chip"></button>
-        <button id="segDel" class="chip danger">Delete</button>
-      </div>
-      <label class="row">Heading
-        <select id="segMode"><option value="linear">linear</option><option value="constant">constant</option><option value="tangential">tangential</option></select>
-      </label>
-      <label class="row">End heading <input id="segH" type="number" step="1"> deg</label>
-      <label class="row"><input id="segRev" type="checkbox"> Reversed (tangential)</label>
-    </section>
     <section>
       <h3>Robot settings</h3>
       <label class="row">Team <input id="rTeam" type="text" maxlength="12" placeholder="e.g. 1234"></label>
-      <label class="row">Color <input id="rColor" type="color"></label>
       <label class="row">Size <input id="rW" type="number" min="6" max="30" step="0.5"> x <input id="rL" type="number" min="6" max="30" step="0.5"> in</label>
       <label class="row">Max vel <input id="rVel" type="number" min="1" step="1"> in/s</label>
       <label class="row">Max accel <input id="rAcc" type="number" min="1" step="1"> in/s&sup2;</label>
@@ -71,7 +82,12 @@
     </section>
     <p id="hint" class="hint"></p>
   </aside>
-  <div id="stage"><canvas id="field"></canvas><div id="toast" role="status" hidden></div></div>
+  <div id="stage"><canvas id="field"></canvas></div>
+  <aside id="wpPanel">
+    <h3>Waypoints</h3>
+    <div id="wpList" class="wplist"></div>
+    <p class="hint">Select a row or a point. <kbd>Del</kbd> deletes it, <kbd>L</kbd>/<kbd>C</kbd> toggles line/curve, double-click a segment (Select tool) to insert a waypoint.</p>
+  </aside>
 </div>
 <footer id="timeline">
   <button id="play" class="btn accent" title="Play/pause (Space)">Play</button>
@@ -85,11 +101,32 @@
   <div id="startWarn" class="startwarn"></div>
   <div id="conflicts" class="conflicts"></div>
 </footer>
+</div>
 
-<dialog id="boardsDlg">
-  <h2>Boards</h2>
-  <ul id="boardList"></ul>
-  <form method="dialog" class="actions"><button type="button" id="newBoard" class="btn accent">New board</button><button class="btn">Close</button></form>
+<div id="toast" role="status" hidden><span id="toastMsg"></span><button id="toastAct" class="btn sm" hidden></button></div>
+<div id="menu" class="menu" hidden></div>
+<div id="dropHint" hidden>Drop .pp or Pedro Java files to import</div>
+<input id="importFile" type="file" accept=".pp,.json,.java,.kt,.txt,application/json,text/plain" multiple hidden>
+
+<dialog id="newDlg">
+  <form method="dialog" id="newForm">
+    <h2>New auto</h2>
+    <label class="row">Name <input id="nName" type="text" value="New auto" maxlength="60"></label>
+    <label class="row">Team <input id="nTeam" type="text" maxlength="12" placeholder="e.g. 1234"></label>
+    <label class="row">Drawn for
+      <select id="nAlliance"><option value="red">Red alliance</option><option value="blue">Blue alliance</option></select></label>
+    <div class="actions"><button value="create" class="btn accent">Create</button><button value="cancel" class="btn">Cancel</button></div>
+  </form>
+</dialog>
+<dialog id="pasteDlg">
+  <form method="dialog" id="pasteForm">
+    <h2>Paste a Pedro path</h2>
+    <p class="muted">Paste .pp JSON from the Pedro Visualizer, or Java from an OpMode. Each pathBuilder chain becomes its own auto.</p>
+    <textarea id="pText" rows="9" spellcheck="false" placeholder="{ &quot;startPoint&quot;: ... } or follower.pathBuilder()..."></textarea>
+    <label class="row">Name <input id="pName" type="text" placeholder="Pasted auto" maxlength="60"></label>
+    <label class="row">Team <input id="pTeam" type="text" maxlength="12"></label>
+    <div class="actions"><button value="import" class="btn accent">Import</button><button value="cancel" class="btn">Cancel</button></div>
+  </form>
 </dialog>
 <dialog id="markerDlg">
   <form method="dialog" id="markerForm">
@@ -111,17 +148,17 @@
 <dialog id="helpDlg">
   <h2>Shortcuts</h2>
   <table class="keys">
-    <tr><td><kbd>1</kbd>-<kbd>4</kbd></td><td>Red 1, Red 2, Blue 1, Blue 2</td></tr>
     <tr><td><kbd>D</kbd> <kbd>S</kbd> <kbd>P</kbd> <kbd>M</kbd></td><td>Draw, select, start pose, marker tools</td></tr>
     <tr><td><kbd>Z</kbd></td><td>Toggle zone overlay (loading zones, HIVE frame)</td></tr>
     <tr><td><kbd>G</kbd></td><td>Toggle grid snap (hold <kbd>Alt</kbd> to bypass)</td></tr>
     <tr><td><kbd>Space</kbd></td><td>Play / pause</td></tr>
     <tr><td><kbd>Ctrl</kbd>+<kbd>Z</kbd> / <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>Z</kbd></td><td>Undo / redo</td></tr>
-    <tr><td><kbd>Del</kbd></td><td>Delete selected segment</td></tr>
+    <tr><td><kbd>Del</kbd></td><td>Delete the selected waypoint</td></tr>
+    <tr><td><kbd>L</kbd> / <kbd>C</kbd></td><td>Toggle line / curve on the selected segment</td></tr>
     <tr><td><kbd>&larr;</kbd> <kbd>&rarr;</kbd></td><td>Step the timeline 0.5 s</td></tr>
     <tr><td><kbd>?</kbd></td><td>This help</td></tr>
   </table>
-  <p class="muted">Draw: drag a freehand stroke (fitted to lines and curves) or click to add a straight line. Select: drag squares (endpoints) and circles (control points); double-click an endpoint for a marker.</p>
+  <p class="muted">Draw: drag a freehand stroke (fitted to lines and curves) or click to add a straight line. Select: drag squares (endpoints) and circles (control points); double-click an endpoint for a marker or a segment to insert a waypoint. Import .pp / Java by button, drag-and-drop or Paste.</p>
   <form method="dialog" class="actions"><button class="btn">Close</button></form>
 </dialog>
 <script type="module" src="./src/main.js"></script>

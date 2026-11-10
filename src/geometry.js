@@ -255,3 +255,16 @@ export function polysOverlap(A, B) {
   }
   return true;
 }
+
+// De Casteljau split at u: returns the control polygons of both halves; the curve shape is unchanged.
+export function splitBezier(pts, u) {
+  const left = [pts[0]], right = [pts[pts.length - 1]];
+  let row = pts.map(q => ({ x: q.x, y: q.y }));
+  while (row.length > 1) {
+    const next = [];
+    for (let i = 0; i < row.length - 1; i++) next.push({ x: row[i].x + (row[i + 1].x - row[i].x) * u, y: row[i].y + (row[i + 1].y - row[i].y) * u });
+    left.push(next[0]); right.unshift(next[next.length - 1]);
+    row = next;
+  }
+  return { left, right };
+}

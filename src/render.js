@@ -104,12 +104,13 @@ export function draw(ctx, w, h, board, ui) {
   ctx.clearRect(0, 0, w, h);
   drawField(ctx, v, ui.bg, ui.zones);
 
-  for (const k of ROBOT_KEYS) {
+  const shown = ROBOT_KEYS.filter(k => !ui.hidden?.has(k));
+  for (const k of shown) {
     const r = board.robots[k], active = k === ui.robot;
-    ctx.globalAlpha = active ? 1 : 0.5;
+    ctx.globalAlpha = active ? 1 : 0.35;
     ctx.strokeStyle = r.color; ctx.lineWidth = active ? 3 : 2; ctx.lineJoin = 'round';
     ctx.beginPath(); tracePath(ctx, v, r.path); ctx.stroke();
-    if (ui.sel && active && ui.sel.seg != null && r.path.segments[ui.sel.seg]) {
+    if (ui.sel && active && ui.sel.seg >= 0 && r.path.segments[ui.sel.seg]) {
       ctx.strokeStyle = '#fff'; ctx.lineWidth = 5; ctx.globalAlpha = 0.35;
       ctx.beginPath();
       const pts = segPoints(r.path, ui.sel.seg);
@@ -117,7 +118,7 @@ export function draw(ctx, w, h, board, ui) {
       for (let q = 1; q <= 28; q++) { const p = bezierPoint(pts, q / 28); ctx.lineTo(...toScreen(v, p.x, p.y)); }
       ctx.stroke(); ctx.globalAlpha = 1;
     }
-    ctx.globalAlpha = 1;
+    ctx.globalAlpha = active ? 1 : 0.45;
     r.markers.forEach(m => {
       const s = r.path.segments[m.segIndex];
       if (!s) return;
@@ -127,6 +128,7 @@ export function draw(ctx, w, h, board, ui) {
       ctx.fillText(`${m.label}${m.waitS ? ' ' + m.waitS + 's' : ''}`, x + 9, y - 9);
     });
     drawRobot(ctx, v, r, r.path.startPose, '', false, true);
+    ctx.globalAlpha = 1;
   }
 
   const r0 = board.robots[ui.robot];
@@ -140,12 +142,20 @@ export function draw(ctx, w, h, board, ui) {
     ctx.setLineDash([]);
     for (const hp of handlePositions(r0.path)) {
       const [x, y] = toScreen(v, hp.x, hp.y), c = hp.handle[0] === 'c';
-      const on = ui.sel && ui.sel.seg === hp.segIndex;
+      const on = ui.sel && (hp.handle === 'start' ? ui.sel.seg === -1 : ui.sel.seg === hp.segIndex);
       ctx.fillStyle = c ? '#0b1115' : hp.handle === 'start' ? '#fff' : r0.color;
       ctx.strokeStyle = on ? TEAL : '#fff'; ctx.lineWidth = 2;
       ctx.beginPath();
       if (c) ctx.arc(x, y, 5, 0, 7); else ctx.rect(x - 5, y - 5, 10, 10);
       ctx.fill(); ctx.stroke();
+    }
+    if (ui.sel) {
+      const p = ui.sel.seg < 0 ? r0.path.startPose : r0.path.segments[ui.sel.seg]?.end;
+      if (p) {
+        const [x, y] = toScreen(v, p.x, p.y);
+        ctx.strokeStyle = TEAL; ctx.lineWidth = 3;
+        ctx.beginPath(); ctx.arc(x, y, 11, 0, 7); ctx.stroke();
+      }
     }
   }
 
@@ -155,9 +165,11 @@ export function draw(ctx, w, h, board, ui) {
     ctx.stroke(); ctx.setLineDash([]);
   }
 
-  for (const k of ROBOT_KEYS) {
+  for (const k of shown) {
     const r = board.robots[k];
+    ctx.globalAlpha = k === ui.robot ? 1 : 0.45;
     drawRobot(ctx, v, r, poseAt(r, ui.t), k.toUpperCase(), ui.hot.has(k), false);
+    ctx.globalAlpha = 1;
   }
 
   const now = performance.now();
@@ -170,4 +182,16 @@ export function draw(ctx, w, h, board, ui) {
     ctx.fillText(id.slice(0, 4), x + 8, y + 3);
   }
   return v;
+}
+
+// Library card thumbnail: field image, path polyline, waypoint dots and the start dot, as drawn.
+export function drawThumb(ctx, size, img, path, color) {
+  ctx.fillStyle = '#121d24'; ctx.fillRect(0, 0, size, size);
+  if (img) ctx.drawImage(img, 0, 0, size, size);
+  const v = { ox: 0, oy: 0, scale: size / FIELD, size };
+  ctx.strokeStyle = color; ctx.lineWidth = Math.max(2, size / 90); ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+  ctx.beginPath(); tracePath(ctx, v, path); ctx.stroke();
+  const dot = (p, r, fill) => { const [x, y] = toScreen(v, p.x, p.y); ctx.fillStyle = fill; ctx.beginPath(); ctx.arc(x, y, r, 0, 7); ctx.fill(); };
+  for (const s of path.segments) dot(s.end, Math.max(2.5, size / 80), '#fff');
+  dot(path.startPose, Math.max(4, size / 50), '#22c55e');
 }

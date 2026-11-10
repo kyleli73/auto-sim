@@ -3,7 +3,7 @@ import { AUTO_SECONDS, findConflicts, totalTime } from './profile.js';
 import { ROBOT_KEYS, ROBOT_LABEL, uid } from './store.js';
 import { startIssues } from './field.js';
 import { toField, toScreen, handlePositions } from './render.js';
-import { encodeBoard, shareUrl } from './share.js';
+import { toPP } from './pedro.js';
 
 const $ = id => document.getElementById(id);
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
@@ -43,11 +43,14 @@ export function initUI(app) {
   };
   const evPx = e => { const r = canvas.getBoundingClientRect(); return { x: e.clientX - r.left, y: e.clientY - r.top }; };
 
-  function toast(msg) {
-    const t = $('toast');
-    t.textContent = msg; t.hidden = false;
+  // opt: { action: 'Undo', onAction, ms }
+  function toast(msg, opt = {}) {
+    const t = $('toast'), b = $('toastAct');
+    $('toastMsg').textContent = msg; t.hidden = false;
+    b.hidden = !opt.action; b.textContent = opt.action || '';
+    b.onclick = () => { t.hidden = true; clearTimeout(toastTimer); opt.onAction?.(); };
     clearTimeout(toastTimer);
-    toastTimer = setTimeout(() => { t.hidden = true; }, 3500);
+    toastTimer = setTimeout(() => { t.hidden = true; }, opt.ms || 3500);
   }
   app.toast = toast;
 
@@ -71,14 +74,14 @@ export function initUI(app) {
     });
     return best;
   }
-  function hitSegment(e) {
+  function hitSegment(e) { // { i, u } of the nearest point on any segment within a few pixels, else null
     const r = robot(), p = evPx(e);
-    let best = -1, bd = 12;
+    let best = null, bd = 12;
     r.path.segments.forEach((_, i) => {
       const pts = segPoints(r.path, i);
-      for (let k = 0; k <= 24; k++) {
-        const q = bezierAt(pts, k / 24), [sx, sy] = toScreen(app.view, q.x, q.y), d = Math.hypot(sx - p.x, sy - p.y);
-        if (d < bd) { bd = d; best = i; }
+      for (let k = 0; k <= 48; k++) {
+        const q = bezierAt(pts, k / 48), [sx, sy] = toScreen(app.view, q.x, q.y), d = Math.hypot(sx - p.x, sy - p.y);
+        if (d < bd) { bd = d; best = { i, u: k / 48 }; }
       }
     });
     return best;
@@ -152,11 +155,11 @@ export function initUI(app) {
     } else {
       const h = hitHandle(e);
       if (h) {
-        ui.sel = { seg: h.segIndex };
+        ui.sel = { seg: h.handle === 'start' ? -1 : h.segIndex };
         drag = { ...base, type: 'handle', h, key: 'mv' + uid() };
       } else if (ui.tool === 'select') {
-        const i = hitSegment(e);
-        ui.sel = i >= 0 ? { seg: i } : null;
+        const hs = hitSegment(e);
+        ui.sel = hs ? { seg: hs.i } : null;
       } else {
         drag = { ...base, type: 'draw', pts: [f] };
         ui.draft = drag.pts;
@@ -201,91 +204,119 @@ export function initUI(app) {
   canvas.addEventListener('dblclick', e => {
     if (ui.tool !== 'select') return;
     const i = hitEnd(e);
-    if (i >= 0) openMarker(i);
+    if (i >= 0) { openMarker(i); return; }
+    const hs = hitSegment(e);
+    if (hs) { store.dispatch({ type: 'splitSegment', robot: ui.robot, segIndex: hs.i, u: hs.u }); ui.sel = { seg: hs.i }; app.dirty(); refresh(); }
   });
   canvas.addEventListener('pointerleave', () => app.sync.sendCursor(-999, -999));
 
   // ---- toolbar
   const chips = $('chips');
-  ROBOT_KEYS.forEach((k, i) => {
-    const b = document.createElement('button');
-    b.className = 'chip'; b.dataset.robot = k; b.title = `${ROBOT_LABEL[k]} (${i + 1})`;
-    b.onclick = () => setRobot(k);
-    chips.appendChild(b);
-  });
-  function setRobot(k) { ui.robot = k; ui.sel = null; app.dirty(); refresh(); }
   function setTool(t) { ui.tool = t; app.dirty(); refresh(); }
   document.querySelectorAll('#toolBtns [data-tool]').forEach(b => { b.onclick = () => setTool(b.dataset.tool); });
   $('snap').onchange = e => { ui.snap = e.target.checked; };
 
   const patch = p => store.dispatch({ type: 'setRobot', robot: ui.robot, patch: p });
   $('rTeam').onchange = e => patch({ team: e.target.value });
-  $('rColor').onchange = e => patch({ color: e.target.value });
   $('rW').onchange = e => patch({ size: { ...robot().size, w: clamp(+e.target.value || 18, 6, 30) } });
   $('rL').onchange = e => patch({ size: { ...robot().size, l: clamp(+e.target.value || 18, 6, 30) } });
   $('rVel').onchange = e => patch({ maxVel: Math.max(1, +e.target.value || 50) });
   $('rAcc').onchange = e => patch({ maxAccel: Math.max(1, +e.target.value || 40) });
-  $('clearPath').onclick = () => { if (robot().path.segments.length && confirm(`Clear ${ROBOT_LABEL[ui.robot]}'s path?`)) { ui.sel = null; store.dispatch({ type: 'clearPath', robot: ui.robot }); } };
+  $('clearPath').onclick = () => {
+    if (!robot().path.segments.length) return;
+    ui.sel = null; store.dispatch({ type: 'clearPath', robot: ui.robot });
+    const after = store.get();
+    toast('Path cleared', { action: 'Undo', ms: 6000, onAction: () => { if (store.get() === after) store.undo(); } });
+  };
 
-  const seg = () => ui.sel && robot().path.segments[ui.sel.seg];
-  $('segKind').onclick = () => {
-    const i = ui.sel.seg, s = seg(), pts = segPoints(robot().path, i), [a, b] = [pts[0], pts[pts.length - 1]];
+  const toggleKind = i => {
+    const s = robot().path.segments[i];
+    if (!s) return;
+    const pts = segPoints(robot().path, i), [a, b] = [pts[0], pts[pts.length - 1]];
     const third = t => ({ x: Math.round((a.x + (b.x - a.x) * t) * 100) / 100, y: Math.round((a.y + (b.y - a.y) * t) * 100) / 100 });
     store.dispatch({ type: 'setSegment', robot: ui.robot, segIndex: i, patch: s.kind === 'line' ? { kind: 'curve', controls: [third(1 / 3), third(2 / 3)] } : { kind: 'line', controls: [] } });
   };
-  $('segDel').onclick = () => { const i = ui.sel.seg; ui.sel = null; store.dispatch({ type: 'deleteSegment', robot: ui.robot, segIndex: i }); };
-  const setHeading = p => store.dispatch({ type: 'setHeading', robot: ui.robot, segIndex: ui.sel.seg, ...p });
-  $('segMode').onchange = e => setHeading({ heading: { mode: e.target.value, ...(seg().heading.reverse ? { reverse: true } : {}) } });
-  $('segRev').onchange = e => setHeading({ heading: { mode: seg().heading.mode, ...(e.target.checked ? { reverse: true } : {}) } });
-  $('segH').onchange = e => setHeading({ h: normDeg(+e.target.value || 0) });
+  const delWaypoint = i => {
+    ui.sel = null;
+    store.dispatch(i < 0 ? { type: 'deleteStart', robot: ui.robot } : { type: 'deleteSegment', robot: ui.robot, segIndex: i });
+  };
+
+  // ---- waypoints panel
+  const wpList = $('wpList');
+  let wpRobot = null;
+  const wpNum = (val, on) => {
+    const i = document.createElement('input');
+    i.type = 'number'; i.step = '1'; i.value = Math.round(val * 100) / 100;
+    i.onclick = e => e.stopPropagation();
+    i.onchange = () => { if (i.value !== '' && Number.isFinite(+i.value)) on(+i.value); else i.value = val; };
+    return i;
+  };
+  function renderWaypoints(force) {
+    const r = robot();
+    if (!force && r === wpRobot) return;
+    wpRobot = r;
+    wpList.textContent = '';
+    const rows = [{ idx: -1, p: r.path.startPose }, ...r.path.segments.map((s, i) => ({ idx: i, p: s.end, s }))];
+    for (const { idx, p, s } of rows) {
+      const row = document.createElement('div');
+      row.className = 'wprow'; row.dataset.idx = idx;
+      row.onclick = () => { ui.sel = { seg: idx }; app.dirty(); markSel(); };
+      const n = document.createElement('span');
+      n.className = 'idx'; n.textContent = idx < 0 ? 'S' : idx + 1;
+      const cx = clamp;
+      const x = wpNum(p.x, v => store.dispatch(idx < 0 ? { type: 'setStart', robot: ui.robot, pose: { x: cx(v, 0, FIELD) } } : { type: 'moveHandle', robot: ui.robot, segIndex: idx, handle: 'end', x: cx(v, 0, FIELD), y: p.y }));
+      const y = wpNum(p.y, v => store.dispatch(idx < 0 ? { type: 'setStart', robot: ui.robot, pose: { y: cx(v, 0, FIELD) } } : { type: 'moveHandle', robot: ui.robot, segIndex: idx, handle: 'end', x: p.x, y: cx(v, 0, FIELD) }));
+      const h = wpNum(p.h, v => store.dispatch({ type: 'setHeading', robot: ui.robot, segIndex: idx, h: normDeg(v) }));
+      x.title = 'x (in)'; y.title = 'y (in)'; h.title = 'heading (deg)';
+      const del = document.createElement('button');
+      del.className = 'del'; del.textContent = '\u00d7'; del.title = idx < 0 ? 'Delete start (first end becomes the start)' : 'Delete waypoint';
+      del.disabled = idx < 0 && !r.path.segments.length;
+      del.onclick = e => { e.stopPropagation(); delWaypoint(idx); };
+      row.append(n, x, y, h, del);
+      const meta = document.createElement('div');
+      meta.className = 'meta';
+      if (s) {
+        const badge = document.createElement('button');
+        badge.className = 'badge ' + s.kind; badge.textContent = s.kind; badge.title = 'Toggle line / curve (L or C)';
+        badge.onclick = e => { e.stopPropagation(); toggleKind(idx); };
+        const mode = document.createElement('select');
+        mode.className = 'badge'; mode.title = 'Heading mode';
+        for (const m of ['linear', 'constant', 'tangential']) mode.add(new Option(m, m, false, m === s.heading.mode));
+        mode.onclick = e => e.stopPropagation();
+        mode.onchange = () => store.dispatch({ type: 'setHeading', robot: ui.robot, segIndex: idx, heading: { mode: mode.value, ...(s.heading.reverse ? { reverse: true } : {}) } });
+        const rev = document.createElement('label');
+        rev.title = 'Reversed (tangential)';
+        const cb = document.createElement('input');
+        cb.type = 'checkbox'; cb.checked = !!s.heading.reverse; cb.disabled = s.heading.mode !== 'tangential';
+        cb.onclick = e => e.stopPropagation();
+        cb.onchange = () => store.dispatch({ type: 'setHeading', robot: ui.robot, segIndex: idx, heading: { mode: s.heading.mode, ...(cb.checked ? { reverse: true } : {}) } });
+        rev.append(cb, ' rev');
+        const mk = r.markers.find(k => k.segIndex === idx), lab = document.createElement('span');
+        lab.className = 'mk'; lab.textContent = mk ? `${mk.label}${mk.waitS ? ' ' + mk.waitS + 's' : ''}` : '+ action';
+        lab.style.cursor = 'pointer'; if (!mk) lab.style.color = 'var(--muted)';
+        lab.onclick = e => { e.stopPropagation(); openMarker(idx); };
+        meta.append(badge, mode, rev, lab);
+      } else meta.textContent = 'start pose';
+      row.appendChild(meta);
+      wpList.appendChild(row);
+    }
+    markSel();
+  }
+  function markSel() {
+    wpList.querySelectorAll('.wprow').forEach(r => r.classList.toggle('sel', !!ui.sel && +r.dataset.idx === ui.sel.seg));
+    refreshHint();
+  }
 
   // ---- top bar
   $('undo').onclick = () => store.undo();
   $('redo').onclick = () => store.redo();
-  $('mirror').onclick = e => {
-    const to = e.shiftKey ? ui.robot : undefined;
-    store.dispatch({ type: 'mirror', from: ui.robot, to });
-    toast(e.shiftKey ? `Mirrored ${ROBOT_LABEL[ui.robot]} in place` : 'Mirrored path copied to the other alliance');
-  };
-  $('share').onclick = async () => {
-    try {
-      const url = shareUrl(location.href, await encodeBoard(store.get()));
-      try { await navigator.clipboard.writeText(url); toast(`Share link copied (${url.length} chars)`); }
-      catch { prompt('Copy this share link', url); }
-    } catch { toast('Could not build a share link in this browser.'); }
-  };
-  $('exportJson').onclick = () => download(new Blob([JSON.stringify(store.get(), null, 2)], { type: 'application/json' }), `${store.get().name.replace(/[^\w-]+/g, '_')}.json`);
-  $('importJson').onclick = () => $('importFile').click();
-  $('importFile').onchange = async e => {
-    const f = e.target.files[0];
-    e.target.value = '';
-    if (!f) return;
-    try { app.boards.importRaw(JSON.parse(await f.text())); toast('Imported as a new board'); } catch { toast('That file is not a valid board.'); }
-  };
+  const curAuto = () => app.currentAuto();
+  $('share').onclick = () => app.shareAuto(curAuto().id);
+  $('downloadPP').onclick = () => app.downloadPP(curAuto().id);
+  $('edBack').onclick = () => app.showLibrary();
+  $('autoName').onchange = e => { const n = e.target.value.trim(); if (n) app.renameAuto(curAuto().id, n); else e.target.value = curAuto().name; };
   $('exportPng').onclick = () => { app.render(); canvas.toBlob(b => b && download(b, `${store.get().name.replace(/[^\w-]+/g, '_')}.png`)); };
   $('helpBtn').onclick = () => $('helpDlg').showModal();
-
-  // ---- boards dialog
-  function renderBoards() {
-    const ul = $('boardList');
-    ul.textContent = '';
-    const list = Object.values(app.lib.boards).sort((a, b) => b.updatedAt - a.updatedAt);
-    for (const b of list) {
-      const li = document.createElement('li');
-      if (b.id === store.get().id) li.className = 'cur';
-      const nm = document.createElement('span');
-      nm.className = 'nm'; nm.textContent = b.name; nm.title = new Date(b.updatedAt).toLocaleString();
-      nm.onclick = () => { app.boards.open(b.id); $('boardsDlg').close(); };
-      li.appendChild(nm);
-      const btn = (label, fn) => { const x = document.createElement('button'); x.className = 'btn'; x.textContent = label; x.onclick = () => { fn(); renderBoards(); }; li.appendChild(x); };
-      btn('Rename', () => { const n = prompt('Board name', b.name); if (n && n.trim()) app.boards.rename(b.id, n.trim()); });
-      btn('Duplicate', () => app.boards.duplicate(b.id));
-      btn('Delete', () => { if (confirm(`Delete "${b.name}"?`)) app.boards.remove(b.id); });
-      ul.appendChild(li);
-    }
-  }
-  $('boardName').onclick = () => { app.boards.flush(); renderBoards(); $('boardsDlg').showModal(); };
-  $('newBoard').onclick = () => { const n = prompt('Board name', 'Q1 vs '); if (n !== null) { app.boards.create(n.trim() || 'Untitled board'); renderBoards(); } };
 
   // ---- live room
   const roomStatus = msg => {
@@ -294,8 +325,9 @@ export function initUI(app) {
     $('roomCopy').hidden = !code; $('roomLeave').hidden = !code;
   };
   app.roomStatus = msg => { roomStatus(msg); if (!$('roomDlg').open) toast(msg); };
-  app.setPeers = n => { $('peerCount').textContent = n; $('peerCount').hidden = !n; };
-  $('room').onclick = () => { roomStatus(); $('roomDlg').showModal(); };
+  app.setPeers = n => document.querySelectorAll('.peerCount').forEach(el => { el.textContent = n; el.hidden = !n; });
+  const openRoom = () => { roomStatus(); $('roomDlg').showModal(); };
+  $('room').onclick = openRoom; $('libRoom').onclick = openRoom; $('libHelp').onclick = () => $('helpDlg').showModal();
   $('roomStart').onclick = async () => { $('roomStatus').textContent = 'Starting...'; await app.sync.startRoom(); roomStatus(); };
   $('roomJoin').onclick = async () => { const c = $('roomCode').value.trim(); if (c) { $('roomStatus').textContent = 'Connecting...'; await app.sync.joinRoom(c); roomStatus(); } };
   $('roomLeave').onclick = () => { app.sync.leave(); $('roomStatus').textContent = 'Left the room.'; roomStatus(); };
@@ -348,9 +380,10 @@ export function initUI(app) {
   }
 
   function refreshTimeline(b) {
-    ui.conflicts = findConflicts(b);
+    const keys = ROBOT_KEYS.filter(k => !ui.hidden.has(k));
+    ui.conflicts = findConflicts({ ...b, robots: Object.fromEntries(keys.map(k => [k, b.robots[k]])) });
     const sw = $('startWarn');
-    sw.textContent = ROBOT_KEYS.flatMap(k => startIssues(k, b.robots[k].path.startPose, b.robots[k].size).map(m => `${ROBOT_LABEL[k]} start: ${m}`)).join(' | ');
+    sw.textContent = keys.flatMap(k => startIssues(k, b.robots[k].path.startPose, b.robots[k].size).map(m => `${ROBOT_LABEL[k]} start: ${m}`)).join(' | ');
     const bar = $('conflictBar');
     bar.textContent = '';
     for (const c of ui.conflicts) {
@@ -370,7 +403,7 @@ export function initUI(app) {
     if (!ui.conflicts.length) list.textContent = 'No footprint overlaps in the first 30 s.';
     const d = $('durations');
     d.textContent = '';
-    for (const k of ROBOT_KEYS) {
+    for (const k of keys) {
       const t = totalTime(b.robots[k]), s = document.createElement('span');
       s.style.borderColor = b.robots[k].color; s.textContent = `${k.toUpperCase()} ${t.toFixed(1)}s`;
       if (t > AUTO_SECONDS) { s.className = 'over'; s.title = 'Longer than the 30 s autonomous period'; }
@@ -379,35 +412,37 @@ export function initUI(app) {
   }
 
   const setVal = (id, v) => { const el = $(id); if (document.activeElement !== el) el.value = v; };
-  function refresh() {
-    const b = store.get(), r = b.robots[ui.robot];
-    $('boardName').textContent = b.name;
-    chips.querySelectorAll('.chip').forEach(c => {
-      const k = c.dataset.robot, rr = b.robots[k];
-      c.classList.toggle('on', k === ui.robot);
-      c.style.borderLeftColor = rr.color;
-      c.textContent = ROBOT_LABEL[k] + (rr.team ? ` ${rr.team}` : '');
-    });
-    document.querySelectorAll('#toolBtns [data-tool]').forEach(x => x.classList.toggle('on', x.dataset.tool === ui.tool));
-    $('snap').checked = ui.snap;
-    setVal('rTeam', r.team); setVal('rColor', r.color); setVal('rW', r.size.w); setVal('rL', r.size.l);
-    setVal('rVel', r.maxVel); setVal('rAcc', r.maxAccel);
-    const s = ui.sel && r.path.segments[ui.sel.seg];
-    if (ui.sel && !s) ui.sel = null;
-    $('segPanel').hidden = !s;
-    if (s) {
-      $('segTitle').textContent = `#${ui.sel.seg + 1}`;
-      $('segKind').textContent = s.kind === 'line' ? 'Make curve' : 'Make line';
-      setVal('segMode', s.heading.mode); setVal('segH', Math.round(s.end.h));
-      $('segRev').checked = !!s.heading.reverse;
-    }
-    $('undo').disabled = !store.canUndo(); $('redo').disabled = !store.canRedo();
+  function refreshHint() {
     $('hint').textContent = {
       draw: 'Drag to sketch a path, click to add a straight line.',
-      select: 'Drag handles. Double-click an endpoint for a marker.',
+      select: 'Drag handles. Double-click a segment to insert a waypoint, an endpoint for a marker.',
       start: 'Click to place the start, drag to aim the heading.',
       marker: 'Tap a segment endpoint to add a labeled wait.',
     }[ui.tool];
+  }
+  function refresh() {
+    const b = store.get(), r = b.robots[ui.robot];
+    if (!r) return;
+    const auto = app.currentAuto();
+    if (auto && document.activeElement !== $('autoName')) $('autoName').value = auto.name;
+    chips.textContent = '';
+    for (const l of app.legend()) {
+      const c = document.createElement('button');
+      c.className = 'chip ro' + (l.key === ui.robot ? ' on' : '') + (l.autoId ? '' : ' empty');
+      c.style.borderLeftColor = l.color; c.style.borderLeftWidth = '5px';
+      c.textContent = `${l.label}: ${l.name || 'empty'}`;
+      c.title = l.autoId && l.key !== ui.robot ? 'Open this auto' : '';
+      if (l.autoId && l.key !== ui.robot) c.onclick = () => app.openAuto(l.autoId);
+      chips.appendChild(c);
+    }
+    document.querySelectorAll('#toolBtns [data-tool]').forEach(x => x.classList.toggle('on', x.dataset.tool === ui.tool));
+    $('snap').checked = ui.snap;
+    setVal('rTeam', r.team); setVal('rW', r.size.w); setVal('rL', r.size.l);
+    setVal('rVel', r.maxVel); setVal('rAcc', r.maxAccel);
+    if (ui.sel && ui.sel.seg >= 0 && !r.path.segments[ui.sel.seg]) ui.sel = null;
+    renderWaypoints(false);
+    markSel();
+    $('undo').disabled = !store.canUndo(); $('redo').disabled = !store.canRedo();
     const b2 = store.get();
     if (b2 !== lastBoard) {
       const prev = lastBoard;
@@ -421,13 +456,12 @@ export function initUI(app) {
   addEventListener('keydown', e => {
     const tag = (e.target.tagName || '').toLowerCase();
     if (['input', 'textarea', 'select'].includes(tag) && !(tag === 'input' && ['range', 'checkbox'].includes(e.target.type) && e.key !== ' ')) return;
-    if (document.querySelector('dialog[open]')) return;
+    if (document.querySelector('dialog[open]') || $('editorView').hidden) return;
     const mod = e.ctrlKey || e.metaKey, k = e.key.toLowerCase();
     if (mod && k === 'z') { e.preventDefault(); e.shiftKey ? store.redo() : store.undo(); return; }
     if (mod && k === 'y') { e.preventDefault(); store.redo(); return; }
     if (mod || e.altKey) return;
     if (k === ' ') { e.preventDefault(); togglePlay(); }
-    else if ('1234'.includes(k) && k.length === 1) setRobot(ROBOT_KEYS[+k - 1]);
     else if (k === 'd') setTool('draw');
     else if (k === 's') setTool('select');
     else if (k === 'p') setTool('start');
@@ -435,9 +469,10 @@ export function initUI(app) {
     else if (k === 'z') { ui.zones = !ui.zones; $('zones').checked = ui.zones; app.dirty(); }
     else if (k === 'g') { ui.snap = !ui.snap; refresh(); }
     else if (k === '?' || k === '/') $('helpDlg').showModal();
-    else if (k === 'delete' || k === 'backspace') { if (ui.sel) { e.preventDefault(); const i = ui.sel.seg; ui.sel = null; store.dispatch({ type: 'deleteSegment', robot: ui.robot, segIndex: i }); } }
+    else if (k === 'delete' || k === 'backspace') { if (ui.sel) { e.preventDefault(); delWaypoint(ui.sel.seg); } }
+    else if (k === 'l' || k === 'c') { if (ui.sel && ui.sel.seg >= 0) toggleKind(ui.sel.seg); }
     else if (k === 'arrowleft' || k === 'arrowright') { ui.t = clamp(ui.t + (k === 'arrowright' ? 0.5 : -0.5), 0, AUTO_SECONDS); ui.playing = false; app.dirty(); tick(); }
   });
 
-  return { refresh, tick, togglePlay };
+  return { refresh, tick, togglePlay, forceWaypoints: () => renderWaypoints(true) };
 }

@@ -1,6 +1,6 @@
-const CACHE = 'auto-sim-v3';
+const CACHE = 'auto-sim-v4';
 const SHELL = ['./', './index.html', './styles.css', './manifest.webmanifest', './icon.svg', './field.png',
-  './src/store.js', './src/geometry.js', './src/field.js', './src/profile.js', './src/share.js', './src/sync.js',
+  './src/store.js', './src/library.js', './src/library-ui.js', './src/pedro.js', './src/geometry.js', './src/field.js', './src/profile.js', './src/share.js', './src/sync.js',
   './src/render.js', './src/ui.js', './src/main.js'];
 
 self.addEventListener('install', e => {

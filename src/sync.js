@@ -22,18 +22,18 @@ function loadPeerJS() {
 }
 
 // Same-device tabs via BroadcastChannel (always on); cross-device rooms via PeerJS (lazy, online only).
-// Messages: robot {boardId,key,robot}, snap {board}, cur {boardId,x,y}.
-export function createSync({ clientId, getBoard, onRobot, onSnapshot, onCursor, onPeers, onStatus }) {
+// Messages: auto {auto}, board {board}, snap {lib} (host to joiner), cur {autoId,x,y}. Receivers merge last-writer-wins.
+export function createSync({ clientId, getLib, getAutoId, onAuto, onBoard, onSnapshot, onCursor, onPeers, onStatus }) {
   const bc = typeof BroadcastChannel === 'function' ? new BroadcastChannel('bubblotics-auto-sim') : null;
   const conns = new Set();
   let peer = null, isHost = false, roomCode = '';
 
   const handle = (m, viaRoom) => {
     if (!m || m.from === clientId) return;
-    if (m.t === 'snap') { if (viaRoom) onSnapshot(m.board); return; }
-    if (m.boardId !== getBoard().id) return;
-    if (m.t === 'robot') onRobot(m.key, m.robot);
-    else if (m.t === 'cur') onCursor(m.from, m.x, m.y);
+    if (m.t === 'snap') { if (viaRoom) onSnapshot(m.lib); }
+    else if (m.t === 'auto') onAuto(m.auto);
+    else if (m.t === 'board') onBoard(m.board);
+    else if (m.t === 'cur' && m.autoId === getAutoId()) onCursor(m.from, m.x, m.y);
   };
 
   if (bc) bc.onmessage = e => handle(e.data, false);
@@ -47,7 +47,7 @@ export function createSync({ clientId, getBoard, onRobot, onSnapshot, onCursor, 
   function setup(conn) {
     conn.on('open', () => {
       conns.add(conn);
-      if (isHost) conn.send({ t: 'snap', board: getBoard(), from: clientId });
+      if (isHost) conn.send({ t: 'snap', lib: getLib(), from: clientId });
       onPeers(conns.size);
     });
     conn.on('data', m => {
@@ -92,8 +92,9 @@ export function createSync({ clientId, getBoard, onRobot, onSnapshot, onCursor, 
   }
 
   return {
-    sendRobot: (key, robot) => send({ t: 'robot', boardId: getBoard().id, key, robot }),
-    sendCursor: (x, y) => send({ t: 'cur', boardId: getBoard().id, x, y }),
+    sendAuto: auto => send({ t: 'auto', auto }),
+    sendBoard: board => send({ t: 'board', board }),
+    sendCursor: (x, y) => { const autoId = getAutoId(); if (autoId) send({ t: 'cur', autoId, x, y }); },
     startRoom: () => open(true, makeCode()),
     joinRoom: code => open(false, code.trim().toUpperCase()),
     leave,

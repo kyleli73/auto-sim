@@ -68,3 +68,22 @@ test('deleteSegment drops and reindexes markers', () => {
   assert.deepEqual(b.robots.r1.markers, [{ segIndex: 1, label: 'c', waitS: 1 }]);
   assert.deepEqual(b.robots.r1.path.segments[0].start, { x: 60, y: 9, h: 90 });
 });
+
+test('deleteStart promotes the first end to the start; splitSegment keeps the shape', () => {
+  let b = newBoard('t');
+  b = reduce(b, { type: 'addSegment', robot: 'r1', segment: seg(60, 30, 90) });
+  b = reduce(b, { type: 'addSegment', robot: 'r1', segment: { kind: 'curve', controls: [{ x: 60, y: 50 }, { x: 80, y: 50 }], end: { x: 80, y: 30, h: 0 } } });
+  b = reduce(b, { type: 'addMarker', robot: 'r1', segIndex: 1, label: 'x', waitS: 1 });
+  const split = reduce(b, { type: 'splitSegment', robot: 'r1', segIndex: 1, u: 0.5 });
+  const sg = split.robots.r1.path.segments;
+  assert.equal(sg.length, 3);
+  assert.deepEqual(sg[1].end, { x: 70, y: 45, h: 45 });
+  assert.deepEqual(sg[1].controls, [{ x: 60, y: 40 }, { x: 65, y: 45 }]);
+  assert.deepEqual(sg[2].controls, [{ x: 75, y: 45 }, { x: 80, y: 40 }]);
+  assert.deepEqual(split.robots.r1.markers, [{ segIndex: 2, label: 'x', waitS: 1 }]);
+  const del = reduce(b, { type: 'deleteStart', robot: 'r1' });
+  assert.deepEqual(del.robots.r1.path.startPose, { x: 60, y: 30, h: 90 });
+  assert.equal(del.robots.r1.path.segments.length, 1);
+  assert.deepEqual(del.robots.r1.path.segments[0].start, { x: 60, y: 30, h: 90 });
+  assert.deepEqual(del.robots.r1.markers, [{ segIndex: 0, label: 'x', waitS: 1 }]);
+});
